@@ -23,20 +23,22 @@ ADDITIONAL (POST-MORTOM) RESPONSES TO INTERVIEW QUESTION REGARDING "FAVORITE PYT
             *x=[math.pow(i,i) for i in range(0,10)] style declaration
             *x[:], x[1:5], etc
             *dynamic size
-    -- enumerate
     -- modularity and simplicity. This program would have been a thousand lines in Java.
+    -- enumerate
 
 ****************************************************************************************
-
 """
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+
+#TODO add logging
+#TODO add update/versioning logic
 
 import gdata.docs.data
 import gdata.docs.client
 import os, time, magic
 
 LOGIN_PATH=os.path.expanduser('~/login.txt')
-GOOGLE_DRIVE_PATH=os.path.expanduser('~/test')
+GOOGLE_DRIVE_PATH=os.path.expanduser('~/Dropbox')
 #GOOGLE_DRIVE_PATH=os.path.expanduser('~/GoogleDrive')
 LAST_UPDATE_PATH='.last_update'
 
@@ -53,9 +55,7 @@ def change_last_update():
     f.write(time_str)
 
 def connect_client():
-    """
-        modifies the global variable client to allow the user identified in "~/login.txt" to communicate with google drive
-    """
+    """" modifies the global variable client to allow the user identified in "~/login.txt" to communicate with google drive """
     global client
     login_file = open(LOGIN_PATH);
     USER=login_file.readline()
@@ -79,37 +79,46 @@ def get_modifications(LAST_UPDATE):
                 to_update.append(abs_path)
     return to_update
 
+
+def roll_back(error):
+    print 'Runtime error', error
+
 def search_file():
     return None
 def search_collection(path, parent_resource):
     return None
 
-def CreateResourceInCollectionSample():
-    """Create a collection, then create a document in it."""
-    col = gdata.docs.data.Resource(type='folder', title='My Sample Folder')
-    col = client.CreateResource(col)
-    print 'Created collection:', col.title.text, col.resource_id.text
-    doc = gdata.docs.data.Resource(type='document', title='My Sample Doc')
-    doc = client.CreateResource(doc, collection=col)
-
 def create_file(file_path, parent_collection):
-    new_resource = gdata.docs.data.Resource(file_path, os.path.basename(file_path))
-    media = gdata.data.MediaSource()
-    media_type = magic.from_file(file_path, mime=True)
-    media.SetFileHandle(file_path, media_type)
-    new_document = client.CreateResource(new_resource, media=media, collection=parent_collection, create_uri=parent_collection.GetResumableCreateMediaLink().href + '?convert=false' )
-    #uri is a unique id for the media, '?convert=false' keeps Google Drive from converting filetypes willy-nilly (they like *.gdocs apparently)
-    client.MoveResource(new_document, parent_collection)
-    return new_document
+    for attempts in range(0,5):
+        try:
+            new_resource = gdata.docs.data.Resource(file_path, os.path.basename(file_path))
+            media = gdata.data.MediaSource()
+            media_type = magic.from_file(file_path, mime=True)
+            media.SetFileHandle(file_path, media_type)
+            """
+            uri is a unique id for the media, and there are different calling conventions for retreving this value based on whether or not you have a parent directory (parent_collection)
+            the string being appended ('?convert=false') keeps Google Drive from converting filetypes willy-nilly (they like *.gdocs apparently).
+            """
+            if parent_collection is not None:
+                return client.CreateResource(new_resource, media=media, collection=parent_collection, create_uri=parent_collection.GetResumableCreateMediaLink().href + '?convert=false' )
+            else:
+                return client.CreateResource(new_resource, media=media, create_uri = gdata.docs.client.RESOURCE_UPLOAD_URI + '?convert=false')
+        except Exception as e:
+            continue
+    roll_back(e)
 
 def create_collection(folder_name, parent_collection):
     """
      create_collection(folder_name, parent_collection) creates a new google drive folder named "folder_name" inside of the "parent_collection" directory
     """
-    new_collection = gdata.docs.data.Resource(type='folder', title=folder_name)
-    new_collection = client.CreateResource(new_collection, collection=parent_collection)
-    return new_collection
-
+    for attempts in range(0,5):
+        try:
+            new_collection = gdata.docs.data.Resource(type='folder', title=folder_name)
+            new_collection = client.CreateResource(new_collection, collection=parent_collection)
+            return new_collection
+        except Exception as e:
+            continue
+    roll_back(e)
 
 def build_path(google_drive_path):
     global directory_map
@@ -129,14 +138,10 @@ def sync(paths):
         if not google_drive_path in directory_map: raise Exception('failed to properly construct directory structure in google_drive')
         create_file(path, directory_map[google_drive_path])
 
-
 if __name__ == "__main__":
     LAST_UPDATE = get_last_update()
     change_last_update()
     paths = get_modifications(LAST_UPDATE)
     connect_client()
     sync(paths)
-
-
-
 

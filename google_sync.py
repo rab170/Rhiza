@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-**********************************
 * Rhiza Screening -- Google Sync *
+**********************************
 **********************************
 *** Rob Brown; rab170@pitt.edu ***
 **********************************
@@ -10,9 +10,10 @@ TL;DR -- syncs ~/GoogleDrive/* with the google account identified in ~/login.txt
 
 This program emulates a simple subset** of the auto-sync behaviors found in Dropbox (from my experience as a UNIX user). In dropbox (unlike Google Drive) users have a local (mutable) directory
 in which their Dropbox data operates. This directory is automatically synced with their Cloud data, eliminating the overhead of backing up their files (in addition to providing seemless version control).
-This program operates in unison with a CRON job, which watches ~/GoogleDrive/* for modifications.
+This program operates in unison with a CRON job to push all local changes upstream to their Google Drive account.
 
-**Note that you will not find auto-removal functionality, nor upstream changes being pulled to the local ~/GoogleDrive directory
+**Note that you will not find auto-removal functionality (when you delete a file/folder), nor upstream changes being pulled to the local ~/GoogleDrive directory. This can effectively be considered
+a constant upload script, more than a "sync" script.
 
 ****************************************************************************************
 
@@ -26,10 +27,25 @@ ADDITIONAL (POST-MORTOM) RESPONSES TO INTERVIEW QUESTION REGARDING "FAVORITE PYT
     -- enumerate
 
 ****************************************************************************************
+
+HOW TO RUN:
+
+    On your prefered UNIX distribution, run the bash scrip (setup.sh) which can be found
+    in the same directory as this file. Must run as super user.
+
+    Doing this:
+        --installs the required modules (gdata and magic)
+        --runs this script once for an initial sync
+        --creates a cron job to run google_sync.py periodically to check for updates
+
+    That's it! You're done!
+
+    If you want to sync a different folder, simply modify the GOOGLE_DRIVE_PATH variable.
+    If you DON'T want your system running this every 10 minutes, comment out the crontab line in setup.sh
+
+****************************************************************************************
 """
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
-
-#TODO add search/update/versioning logic
 
 import gdata.docs.data
 import gdata.docs.client
@@ -42,9 +58,8 @@ GOOGLE_DRIVE_PATH=os.path.expanduser('~/Dropbox')
 LAST_UPDATE_PATH='.last_update'
 LOG_PATH='.google_sync_logs'
 
-directory_map = {'':None}           #hash table for mapping local paths to GData folder "resource" objects. Map an empty path (which coresponds to the ~/GoogleDrive/ directory to None, since this is our root in the cloud
+directory_map = {'':None}   #hash table for mapping local paths to GData folder "resource" objects. Map an empty path (which coresponds to ~/GoogleDrive)to None, since this is our root in the cloud
 logger = None
-
 
 def logger_init():
     global logger
@@ -95,13 +110,11 @@ def get_modifications(LAST_UPDATE):
                 to_update.append(abs_path)
     return to_update
 
-def search_file():
-    return None
-
-def update_file(file_path, parent_collection):
-    return None
-
 def create_file(file_path, parent_collection):
+    """
+        creates Google Drive copy of the file found at "file_path" inside of the folder "parent_collection"
+        returns newly created file resource
+    """
     for attempt in range(1,6):
         try:
             new_resource = gdata.docs.data.Resource(file_path, os.path.basename(file_path))
@@ -121,8 +134,48 @@ def create_file(file_path, parent_collection):
         except Exception as e:
             logger.info('failed to create ' + file_path + ' on attempt %i', attempt)
             logger.error(e)
+            logger.error("re-trying...")
             continue
-    return None     #TODO implement rollback functionality, out of the scope of this project -- files will be lost forever in this case (assuming they are never edited again)
+    return None     #TODO implement rollback functionality, out of the scope of this project -- files will be lost if connection fails 5 times (until next modification)
+
+def search_file(file_name, parent_collection):
+    """
+        searches Google Drive for a file named "file_name" who is a child of the folder "parent_collection"
+        returns file resource if found, None if not found
+    """
+    if parent_collection is None:
+        query = gdata.docs.client.DocsQuery(title=file_name, exact_title='true')
+        search_results = client.GetResources(q=query, limit=5000).entry
+        if len(search_results) > 0:             #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
+            logger.info('file ' + file_name + ' found.')
+            return search_results[0]
+    else:
+        parent_contents = client.GetResources(uri=parent_collection.content.src, limit=5000).entry
+        for entry in parent_contents:           #TODO: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
+            if entry.title.text == file_name:
+                logger.info('file ' + file_name + ' found.')
+                return entry
+    return None
+
+def update_file(file_path, file_resource):
+    """"
+        updates the Google Drive file "file_resource" with the data found in "file_path"
+        returns updated file resource
+    """
+    for attempt in range(1,6):
+        try:
+            media = gdata.data.MediaSource()
+            media_type = magic.from_file(file_path, mime=True)
+            media.SetFileHandle(file_path, media_type)
+            updated_entry = client.Put(None, file_resource.GetEditMediaLink().href+'?convert=false', media_source=media)
+            logger.info('updated ' + file_path + ' on attempt %i', attempt)
+            return updated_entry
+        except Exception as e:
+            logger.info('failed to update ' + file_path + ' on attempt %i', attempt)
+            logger.error(e)
+            logger.error("re-trying...")
+            continue
+    return None
 
 def search_collection(folder_name, parent_collection):
     """"
@@ -130,18 +183,23 @@ def search_collection(folder_name, parent_collection):
     """
     if parent_collection is None:
         query = gdata.docs.client.DocsQuery(title=folder_name, exact_title='true', show_collections ='true')
-        search_results = client.GetResources(q=query).entry
-        if len(search_results) > 0: return search_results[0]    #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
+        search_results = client.GetResources(q=query, limit=5000).entry
+        if len(search_results) > 0:         #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
+            logger.info('folder ' + folder_name + ' found.')
+            return search_results[0]
     else:
         query = gdata.docs.client.DocsQuery(show_collections ='true')
-        parent_contents = client.GetResources(uri=parent_collection.content.src, q=query).entry
-        for entry in parent_contents:                           #TODO: fix efficiency -- again, out of the scope for this project (for the same reason)
-            if entry.title.text == folder_name: return entry
+        parent_contents = client.GetResources(uri=parent_collection.content.src, q=query, limit=5000).entry
+        for entry in parent_contents:       #TODO: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
+            if entry.title.text == folder_name:
+                logger.info('folder ' + folder_name + ' found.')
+                return entry
     return None
 
 def create_collection(folder_name, parent_collection):
     """
     creates a new google drive folder named "folder_name" inside of the "parent_collection" directory
+    returns collection resource
     """
     for attempt in range(1,6):
         try:
@@ -152,30 +210,53 @@ def create_collection(folder_name, parent_collection):
         except Exception as e:
             logger.info('failed to create folder ' + folder_name + ' on attempt %i', attempt)
             logger.error(e)
+            logger.error("re-trying...")
             continue
     return None     #TODO implement rollback functionality
 
 def build_path(google_drive_path):
+    """
+    finds or creates the file structure contained in the list "google_drive_path", and inserts into directory_map
+
+    eg: google_drive_path = ['foo', 'bar', 'car']
+
+    First, search for 'foo' in the Google Drive root. If you find it, save its gdata Resource object into "directory_map". If you dont find it, create it and save the new resource into directory_map.
+    Next, search the folder 'foo' for a subfolder called 'bar'. If you find it, save it. Otherwise, create it.
+    Finally, search the folder 'bar' (discussed above) for a subfolder called 'car'. If you find it, save it. Otherwise, create it (and save it).
+    etc.
+
+    """
     global directory_map
     built_path= ''
     for folder in google_drive_path:
         new_path = os.path.join(built_path, folder)
         if not new_path in directory_map:
             search_result = search_collection(folder, directory_map[built_path])
-            if search_result is not None: directory_map[new_path] = search_result
-            else: directory_map[new_path] = create_collection(folder, directory_map[built_path])
+            if search_result is not None:
+                directory_map[new_path] = search_result
+            else:
+                directory_map[new_path] = create_collection(folder, directory_map[built_path])
         built_path = new_path
 
 def sync(paths):
     global directory_map
     logger.info('starting google drive sync')
     for path in paths:
-        google_drive_path = path.replace(GOOGLE_DRIVE_PATH, '')[1:].split('/')
+        google_drive_path = path.replace(GOOGLE_DRIVE_PATH, '')[1:].split('/')      #modify os path to something suitable for google drive. We remove ~/GoogleDrive, and remove the file name/extension from this (via pop)
         file_name = google_drive_path.pop(-1)
-        build_path(google_drive_path)
+        build_path(google_drive_path)                                               #find the Google Drive folder heirarchy associated with the given file (or create it if it doesn't exist yet)
         google_drive_path = '/'.join(google_drive_path)
         if not google_drive_path in directory_map: raise Exception('failed to properly construct directory structure in google_drive')
-        create_file(path, directory_map[google_drive_path])
+
+        ##                                                                                                                                                          ##
+        #   the file's folder has now been constructed. Check if the fild exists in Google Drive. If so, update it to reflect local changes. Otherwise, create it.   #
+        ##                                                                                                                                                          ##
+
+        search_result = search_file(file_name, directory_map[google_drive_path])
+        if search_result is None:
+           create_file(path, directory_map[google_drive_path])
+        else:
+            update_file(path, search_result)
 
 if __name__ == "__main__":
     logger_init()
@@ -184,3 +265,4 @@ if __name__ == "__main__":
     connect_client()
     sync(paths)
     change_last_update()
+

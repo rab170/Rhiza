@@ -6,17 +6,6 @@
 *** Rob Brown; rab170@pitt.edu ***
 **********************************
 
-TL;DR -- syncs ~/GoogleDrive/* with the google account identified in ~/login.txt
-
-This program emulates a simple subset** of the auto-sync behaviors found in Dropbox (from my experience as a UNIX user). In dropbox (unlike Google Drive) users have a local (mutable) directory
-in which their Dropbox data operates. This directory is automatically synced with their Cloud data, eliminating the overhead of backing up their files (in addition to providing seemless version control).
-This program operates in unison with a CRON job to push all local changes upstream to their Google Drive account.
-
-**Note that you will not find auto-removal functionality (when you delete a file/folder), nor upstream changes being pulled to the local ~/GoogleDrive directory. 
-This can effectively be considered an uploading script, more than a "sync" script.
-
-****************************************************************************************
-
 ADDITIONAL (POST-MORTOM) RESPONSES TO INTERVIEW QUESTION REGARDING "FAVORITE PYTHON FEATURES" (after writing python code again for the first time in months):
     -- lambda functions and lambda sorting (best feature in my opinion/experience)
     -- versitility of data structures:
@@ -30,21 +19,21 @@ ADDITIONAL (POST-MORTOM) RESPONSES TO INTERVIEW QUESTION REGARDING "FAVORITE PYT
 
 HOW TO RUN:
 
-    create a file called "login.txt" in your home directory (~)
-    the first of this file will be your username (eg, john.doe@gmail.com)
-    the second line should be your password (eg, myPass123)
+    Create a file called "login.txt" in your home directory (~).
+    Enter your username on the first line (eg, john.doe@gmail.com).
+    Enter your password on the second line (eg, myPass123).
 
-    Now install required packages (gdata and magic), by navigating to the directories
-    "gdata-2.0.18" and "python-magic" and executing "sudo python setup.py install"
+    Now install required packages (gdata and magic), by navigating to
+    the directories "gdata-2.0.18" and "python-magic" and executing
+    "sudo python setup.py install"
 
     Now run setup.sh to:
         --run google_sync.py once for an initial sync
-        --create a cron job to run google_sync.py periodically to check for updates
+        --create a cron job to run google_sync.py periodically
 
     That's it! You're done!
 
-    If you want to sync a different folder, simply modify the GOOGLE_DRIVE_PATH variable.
-    If you DON'T want your system running this every 10 minutes, comment out the crontab line in setup.sh
+    If you want to sync a different folder, change the GOOGLE_DRIVE_PATH variable.
 
 ****************************************************************************************
 """
@@ -56,7 +45,7 @@ import os, time, logging, magic
 
 
 LOGIN_PATH=os.path.expanduser('~/login.txt')
-GOOGLE_DRIVE_PATH=os.path.expanduser('~/GoogleDrive')
+GOOGLE_DRIVE_PATH=os.path.expanduser('~/Dropbox/coursework/Pitt')
 LAST_UPDATE_PATH='.last_update'
 LOG_PATH='.google_sync_logs'
 
@@ -88,7 +77,7 @@ def change_last_update():
     f.write(time_str)
 
 def connect_client():
-    """" modifies the global variable client to allow the user identified in "~/login.txt" to communicate with google drive """
+    """" modifies the (global) "client" variable to allow the user identified in "~/login.txt" to communicate with google drive """
     global client
     login_file = open(LOGIN_PATH);
     USER=login_file.readline()
@@ -114,8 +103,8 @@ def get_modifications(LAST_UPDATE):
 
 def create_file(file_path, parent_collection):
     """
-        creates Google Drive copy of the file found at "file_path" inside of the folder "parent_collection"
-        returns newly created file resource
+        creates Google Drive file inside of "parent_collection". Its data is "file_path", and is uploaded generically and irrespective of file type
+        returns the created file resource
     """
     for attempt in range(1,6):
         try:
@@ -124,8 +113,8 @@ def create_file(file_path, parent_collection):
             media_type = magic.from_file(file_path, mime=True)
             media.SetFileHandle(file_path, media_type)
             """
-            uri is a unique id for the media, and there are different calling conventions for retreving this value based on whether or not you have a parent directory (parent_collection)
-            the string being appended ('?convert=false') keeps Google Drive from converting filetypes willy-nilly (they like *.gdocs apparently).
+            A URI is a query ID, and there are different calling conventions for retreving this value based on whether or not you have a parent directory (parent_collection)
+            Additionally, the string being appended ('?convert=false') keeps Google Drive from converting filetypes (they like *.gdocs extensions, evidently).
             """
             if parent_collection is not None:
                 new_resource = client.CreateResource(new_resource, media=media, collection=parent_collection, create_uri=parent_collection.GetResumableCreateMediaLink().href + '?convert=false' )
@@ -138,7 +127,7 @@ def create_file(file_path, parent_collection):
             logger.error(e)
             logger.error("re-trying...")
             continue
-    return None     #TODO implement rollback functionality, out of the scope of this project -- files will be lost if connection fails 5 times (until next modification)
+    return None     #future work: implement rollback functionality, out of the scope of this project -- files will be lost if connection fails 5 times (until next modification)
 
 def search_file(file_name, parent_collection):
     """
@@ -148,12 +137,12 @@ def search_file(file_name, parent_collection):
     if parent_collection is None:
         query = gdata.docs.client.DocsQuery(title=file_name, title_exact='true')
         search_results = client.GetResources(q=query, limit=5000).entry
-        if len(search_results) > 0:             #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
+        if len(search_results) > 0:             #future work:: watch duplicate titles --  out of the scope for this project. G-data allows users to specify parent directories for everything but queryinig (very inconvenient)
             logger.info('file ' + file_name + ' found.')
             return search_results[0]
     else:
         parent_contents = client.GetResources(uri=parent_collection.content.src,limit=5000).entry
-        for entry in parent_contents:           #TODO: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
+        for entry in parent_contents:           #future work:: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
             if entry.title.text == file_name:
                 logger.info('file ' + file_name + ' found.')
                 return entry
@@ -187,13 +176,13 @@ def search_collection(folder_name, parent_collection):
     if parent_collection is None:
         query = gdata.docs.client.DocsQuery(title=folder_name, title_exact='true', show_collections ='true')
         search_results = client.GetResources(q=query, limit=5000).entry
-        if len(search_results) > 0:         #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
+        if len(search_results) > 0:         #future work:: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
             logger.info('folder ' + folder_name + ' found.')
             return search_results[0]
     else:
         query = gdata.docs.client.DocsQuery(show_collections ='true')
         parent_contents = client.GetResources(uri=parent_collection.content.src, q=query, limit=5000).entry
-        for entry in parent_contents:       #TODO: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
+        for entry in parent_contents:       #future work:: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
             if entry.title.text == folder_name:
                 logger.info('folder ' + folder_name + ' found.')
                 return entry
@@ -215,7 +204,7 @@ def create_collection(folder_name, parent_collection):
             logger.error(e)
             logger.error("re-trying...")
             continue
-    return None     #TODO implement rollback functionality
+    return None     #future work: implement rollback functionality
 
 def build_path(google_drive_path):
     """
@@ -242,20 +231,19 @@ def build_path(google_drive_path):
         built_path = new_path
 
 def sync(paths):
+    """
+        sync(paths) accepts a list of absolute file paths and transfers those files to Google Drive (while maintaining the directory structure/heirarchy of those paths).
+
+        First, the folder heirarchy is reconstructed in Google Drive; this is done by the function "build_path", which stores Google folder objects ("collection resources") inside the dictionary "directory_map"
+        Next, we search the Google folder objects for our file. If we find it, we add a new revision to that file and upload the modified data. If we don't find it, we create it.
+    """
     global directory_map
-    logger.info('starting google drive sync')
     for path in paths:
-        google_drive_path = path.replace(GOOGLE_DRIVE_PATH, '')[1:].split('/')      #modify os path to something suitable for google drive. We remove ~/GoogleDrive, and remove the file name/extension from this (via pop)
-        file_name = google_drive_path.pop(-1)
-        build_path(google_drive_path)                                               #find the Google Drive folder heirarchy associated with the given file (or create it if it doesn't exist yet)
+        google_drive_path = path.replace(GOOGLE_DRIVE_PATH, '')[1:].split('/')
+        file_name = google_drive_path.pop(-1)   #Modify absolute path to something suitable for google drive. Remove GOOGLE_DRIVE_PATH=~/GoogleDrive and the file handle, leaving our Google Drive folders (to construct)
+        build_path(google_drive_path)           #Find the Google Drive folder heirarchy associated with the given file (or create it if it doesn't exist yet)
         google_drive_path = '/'.join(google_drive_path)
-        if not google_drive_path in directory_map: raise Exception('failed to properly construct directory structure in google_drive')
-
-        ##                                                                                                                                                          ##
-        #   the file's folder has now been constructed. Check if the fild exists in Google Drive. If so, update it to reflect local changes. Otherwise, create it.   #
-        ##                                                                                                                                                          ##
-
-        search_result = search_file(file_name, directory_map[google_drive_path])
+        search_result = search_file(file_name, directory_map[google_drive_path])    #The folder heirarchy has now been constructed (and stored in google_drive_map). Search for our file.
         if search_result is None:
            create_file(path, directory_map[google_drive_path])
         else:
@@ -263,9 +251,9 @@ def sync(paths):
 
 if __name__ == "__main__":
     logger_init()
+    logger.info('starting google drive sync')
     LAST_UPDATE = get_last_update()
+    change_last_update()
     paths = get_modifications(LAST_UPDATE)
     connect_client()
     sync(paths)
-    change_last_update()
-

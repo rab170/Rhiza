@@ -12,8 +12,8 @@ This program emulates a simple subset** of the auto-sync behaviors found in Drop
 in which their Dropbox data operates. This directory is automatically synced with their Cloud data, eliminating the overhead of backing up their files (in addition to providing seemless version control).
 This program operates in unison with a CRON job to push all local changes upstream to their Google Drive account.
 
-**Note that you will not find auto-removal functionality (when you delete a file/folder), nor upstream changes being pulled to the local ~/GoogleDrive directory. This can effectively be considered
-a constant upload script, more than a "sync" script.
+**Note that you will not find auto-removal functionality (when you delete a file/folder), nor upstream changes being pulled to the local ~/GoogleDrive directory. 
+This can effectively be considered an uploading script, more than a "sync" script.
 
 ****************************************************************************************
 
@@ -30,13 +30,16 @@ ADDITIONAL (POST-MORTOM) RESPONSES TO INTERVIEW QUESTION REGARDING "FAVORITE PYT
 
 HOW TO RUN:
 
-    On your prefered UNIX distribution, run the bash scrip (setup.sh) which can be found
-    in the same directory as this file. Must run as super user.
+    create a file called "login.txt" in your home directory (~)
+    the first of this file will be your username (eg, john.doe@gmail.com)
+    the second line should be your password (eg, myPass123)
 
-    Doing this:
-        --installs the required modules (gdata and magic)
-        --runs this script once for an initial sync
-        --creates a cron job to run google_sync.py periodically to check for updates
+    Now install required packages (gdata and magic), by navigating to the directories
+    "gdata-2.0.18" and "python-magic" and executing "sudo python setup.py install"
+
+    Now run setup.sh to:
+        --run google_sync.py once for an initial sync
+        --create a cron job to run google_sync.py periodically to check for updates
 
     That's it! You're done!
 
@@ -53,8 +56,7 @@ import os, time, logging, magic
 
 
 LOGIN_PATH=os.path.expanduser('~/login.txt')
-GOOGLE_DRIVE_PATH=os.path.expanduser('~/Dropbox')
-#GOOGLE_DRIVE_PATH=os.path.expanduser('~/GoogleDrive')
+GOOGLE_DRIVE_PATH=os.path.expanduser('~/GoogleDrive')
 LAST_UPDATE_PATH='.last_update'
 LOG_PATH='.google_sync_logs'
 
@@ -144,13 +146,13 @@ def search_file(file_name, parent_collection):
         returns file resource if found, None if not found
     """
     if parent_collection is None:
-        query = gdata.docs.client.DocsQuery(title=file_name, exact_title='true')
+        query = gdata.docs.client.DocsQuery(title=file_name, title_exact='true')
         search_results = client.GetResources(q=query, limit=5000).entry
         if len(search_results) > 0:             #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
             logger.info('file ' + file_name + ' found.')
             return search_results[0]
     else:
-        parent_contents = client.GetResources(uri=parent_collection.content.src, limit=5000).entry
+        parent_contents = client.GetResources(uri=parent_collection.content.src,limit=5000).entry
         for entry in parent_contents:           #TODO: fix efficiency -- out of the scope for this project. Queries don't allow for parent folder specification, and return unordered lists. Lots of overhead.
             if entry.title.text == file_name:
                 logger.info('file ' + file_name + ' found.')
@@ -159,15 +161,16 @@ def search_file(file_name, parent_collection):
 
 def update_file(file_path, file_resource):
     """"
-        updates the Google Drive file "file_resource" with the data found in "file_path"
+        updates the Google Drive file "file_resource" with the modified data found in "file_path"
+        saves in Google Drive as a new revision (maintaining past data for the user)
         returns updated file resource
     """
     for attempt in range(1,6):
         try:
-            media = gdata.data.MediaSource()
+            updated_media = gdata.data.MediaSource()
             media_type = magic.from_file(file_path, mime=True)
-            media.SetFileHandle(file_path, media_type)
-            updated_entry = client.Put(None, file_resource.GetEditMediaLink().href+'?convert=false', media_source=media)
+            updated_media.SetFileHandle(file_path, media_type)
+            updated_entry = client.UpdateResource(file_resource, media=updated_media, new_revision=True)
             logger.info('updated ' + file_path + ' on attempt %i', attempt)
             return updated_entry
         except Exception as e:
@@ -182,7 +185,7 @@ def search_collection(folder_name, parent_collection):
     searches google drive for collections named "folder_name" which are immediate children of the "parent_collection" folder
     """
     if parent_collection is None:
-        query = gdata.docs.client.DocsQuery(title=folder_name, exact_title='true', show_collections ='true')
+        query = gdata.docs.client.DocsQuery(title=folder_name, title_exact='true', show_collections ='true')
         search_results = client.GetResources(q=query, limit=5000).entry
         if len(search_results) > 0:         #TODO: watch duplicate titles --  out of the scope for this project. GDATA allows users to specify parent directories for everything but queryinig (very inconvenient)
             logger.info('folder ' + folder_name + ' found.')

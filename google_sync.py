@@ -45,7 +45,7 @@ import os, time, logging, magic
 
 
 LOGIN_PATH=os.path.expanduser('~/login.txt')
-GOOGLE_DRIVE_PATH=os.path.expanduser('~/Dropbox/coursework/Pitt')
+GOOGLE_DRIVE_PATH=os.path.expanduser('~/GoogleDrive')
 LAST_UPDATE_PATH='.last_update'
 LOG_PATH='.google_sync_logs'
 

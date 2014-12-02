@@ -14,9 +14,9 @@ functionality.
 HOW TO RUN
 =======================================
 
-Create a file called "login.txt" in your home directory (~).
-Enter your username on the first line (eg, john.doe@gmail.com).
-Enter your password on the second line (eg, myPass123).
+-Create a file called "login.txt" in your home directory (~).
+-Enter your username on the first line (eg, john.doe@gmail.com).
+-Enter your password on the second line (eg, myPass123).
 
 
 Now install required packages (gdata and magic), by navigating to

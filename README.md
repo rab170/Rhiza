@@ -12,7 +12,7 @@ functionality.
 
 
 HOW TO RUN
-==========
+=======================================
 
     Create a file called "login.txt" in your home directory (~).
     Enter your username on the first line (eg, john.doe@gmail.com).
